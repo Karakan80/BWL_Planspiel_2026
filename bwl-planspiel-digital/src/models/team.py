@@ -93,6 +93,9 @@ class Team(BaseModel):
     # Lieferantenkredit (ab Jahr 3 optional)
     lieferantenkredit_aktiv: bool = False  # Zahlungsziel 1 Quartal
 
+    # Lieferantenkredit-Tracking: zurückgestellte Materialkosten des Vorquartals
+    material_schulden_vorquartal: float = 0.0
+
     # Insolvenz-Tracking (Regel: 2 aufeinanderfolgende Quartale Kasse < 0)
     negative_kasse_quartale: int = 0
     ist_insolvent: bool = False
