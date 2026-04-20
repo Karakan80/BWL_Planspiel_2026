@@ -1,13 +1,20 @@
 """
 engine/market_share.py – Marktanteil-Berechnung
 
-Scoring-Formel (Konzept):
-    score(team) = marketing^0.4 * quality_factor / price_factor
-    market_share(team) = score(team) / sum(all_scores)
+Scoring-Formel (nachvollziehbar, nach Konzept):
 
-quality_factor steigt mit kumulierten Qualitätsinvestitionen.
-Ereignis QUALITAETSSKANDAL: Score nicht-investierender Teams −20 %;
-Qualitätsinvestoren bleiben unberührt.
+    marketing_term  = (1 + marketingbudget / MARKETING_NORMALISIERUNG) ^ 0.4
+    quality_factor  = 1 + qualitaetsinvestition_gesamt / QUALITAET_SKALIERUNG
+    preis_ratio     = verkaufspreis / BASIS_PREIS
+
+    score(team)     = marketing_term × quality_factor / preis_ratio
+    marktanteil     = score(team) / sum(all_scores)
+    lose(team)      = aktuelles_marktvolumen × marktanteil  (Largest-Remainder-Rundung)
+
+Eigenschaften:
+  - marketing = 0 → marketing_term = 1 (kein Ausschluss vom Markt)
+  - Preis unter BASIS_PREIS → preis_ratio < 1 → höherer Score (günstigerer Preis attraktiver)
+  - Qualitätsskandal: Non-Investoren erhalten score_faktor 0.8 (−20 %)
 """
 from __future__ import annotations
 
@@ -18,20 +25,28 @@ from src.models.round import TeamEntscheidung
 from src.models.team import Team
 
 # ─── Scoring-Konstanten ──────────────────────────────────────────────────────
-MARKETING_EXPONENT: float = 0.4      # Aus Konzeptformel: marketing^0.4
-MARKETING_MIN: float = 0.01          # Untergrenze: verhindert score=0 bei marketing=0
 
-QUALITAET_SKALIERUNG: float = 10.0         # 10 M Invest → quality_factor +1.0
-QUALITAET_INVESTOR_SCHWELLE: float = 5.0   # Ab 5 M gilt Team als "Qualitätsinvestor"
+MARKETING_EXPONENT: float = 0.4
+
+#: Normalisierungsdivisor für Marketing (Mio. €).
+#: Bei 10 M€ verdoppelt sich der Marketing-Term: (1+10/10)^0.4 = 2^0.4 ≈ 1.32
+MARKETING_NORMALISIERUNG: float = 10.0
+
+#: Referenzpreis (Mio. €).  preis_ratio = 1 → score neutral bezüglich Preis.
+BASIS_PREIS: float = 10.0
+
+#: 10 M€ kumulierte Qualitätsinvestition → quality_factor = 2.0
+QUALITAET_SKALIERUNG: float = 10.0
+
+#: Mindestinvestition für Skandal-Schutz (Mio. €)
+QUALITAET_INVESTOR_SCHWELLE: float = 5.0
+
+
+# ─── Öffentliche Hilfsfunktionen ─────────────────────────────────────────────
 
 
 def berechne_quality_factor(team: Team) -> float:
-    """
-    Berechnet den quality_factor aus kumulierten Qualitätsinvestitionen.
-
-    Basis: 1.0 (kein Invest).  Jede 10 M Qualitätsinvestition erhöhen den
-    Faktor um 1.0, so dass größere Investitionen überproportional belohnt werden.
-    """
+    """quality_factor = 1.0 + kumulierte_Qualitätsinvestition / 10."""
     return 1.0 + team.qualitaetsinvestition_gesamt / QUALITAET_SKALIERUNG
 
 
@@ -40,23 +55,33 @@ def ist_qualitaetsinvestor(team: Team) -> bool:
     return team.qualitaetsinvestition_gesamt >= QUALITAET_INVESTOR_SCHWELLE
 
 
+def berechne_marketing_term(marketingbudget: float) -> float:
+    """(1 + marketing / MARKETING_NORMALISIERUNG) ^ 0.4 – verwendbar für UI-Anzeige."""
+    return math.pow(1.0 + marketingbudget / MARKETING_NORMALISIERUNG, MARKETING_EXPONENT)
+
+
+def berechne_preis_ratio(verkaufspreis: float) -> float:
+    """verkaufspreis / BASIS_PREIS – verwendbar für UI-Anzeige."""
+    return verkaufspreis / BASIS_PREIS
+
+
 def berechne_rohscore(
     entscheidung: TeamEntscheidung,
     team: Team,
     score_faktor: float = 1.0,
 ) -> float:
     """
-    Berechnet den Rohscore eines Teams nach der Konzeptformel.
+    Berechnet den Rohscore eines Teams.
 
-    score = max(marketing, MARKETING_MIN)^0.4 * quality_factor / verkaufspreis
+    score = (1 + marketing / 10)^0.4 × quality_factor / (preis / 10) × score_faktor
 
     Args:
         score_faktor: Externer Multiplikator (z.B. 0.8 bei Qualitätsskandal).
     """
-    marketing_eff = max(entscheidung.marketingbudget, MARKETING_MIN)
+    m_term = berechne_marketing_term(entscheidung.marketingbudget)
     quality = berechne_quality_factor(team)
-    raw = math.pow(marketing_eff, MARKETING_EXPONENT) * quality / entscheidung.verkaufspreis
-    return raw * score_faktor
+    preis_r = berechne_preis_ratio(entscheidung.verkaufspreis)
+    return m_term * quality / preis_r * score_faktor
 
 
 def berechne_team_scores(
@@ -65,42 +90,37 @@ def berechne_team_scores(
     markt: MarktZustand,
 ) -> dict[str, TeamScore]:
     """
-    Berechnet Rohscores aller Teams und normiert sie zu Marktanteilen.
+    Berechnet Rohscores aller aktiven Teams und normiert sie zu Marktanteilen.
 
     Sonderfälle:
-    - Insolvent: Team wird übersprungen (kein Score, kein Anteil).
-    - QUALITAETSSKANDAL: Non-Investoren erhalten score_faktor 0.8,
-      Qualitätsinvestoren bleiben bei 1.0.
-    - Gesamtscore = 0 (z.B. alle marketing=0): Gleichverteilung als Fallback.
+    - Insolvent: übersprungen (kein Score, kein Marktanteil).
+    - QUALITAETSSKANDAL: Non-Investoren erhalten score_faktor 0.8.
+    - Gesamtscore = 0: Gleichverteilung als Fallback.
 
     Returns:
-        ``{team_id: TeamScore}`` mit befüllten rohscore und marktanteil.
-        ``zuteilbare_lose`` wird von demand.verteile_nachfrage nachträglich gesetzt.
+        ``{team_id: TeamScore}`` – ``zuteilbare_lose`` wird von demand nachträglich gesetzt.
     """
     ereignis = markt.aktives_ereignis
-    ist_skandal = (
-        ereignis is not None and ereignis.typ == EreignisTyp.QUALITAETSSKANDAL
-    )
+    ist_skandal = ereignis is not None and ereignis.typ == EreignisTyp.QUALITAETSSKANDAL
 
-    # ── Rohscores berechnen ──────────────────────────────────────────────────
+    # ── Rohscores ────────────────────────────────────────────────────────────
     rohscores: dict[str, float] = {}
     for ent in entscheidungen:
         team = teams_by_id.get(ent.team_id)
         if team is None or team.ist_insolvent:
             continue
 
+        faktor = 1.0
         if ist_skandal:
             faktor = (
-                ereignis.score_faktor_qualitaet    # 1.0 – unberührt
+                ereignis.score_faktor_qualitaet
                 if ist_qualitaetsinvestor(team)
-                else ereignis.score_faktor_allgemein  # 0.8 – Abzug
+                else ereignis.score_faktor_allgemein
             )
-        else:
-            faktor = 1.0
 
         rohscores[ent.team_id] = berechne_rohscore(ent, team, faktor)
 
-    # ── Normierung zu Marktanteilen ──────────────────────────────────────────
+    # ── Normierung → Marktanteile ─────────────────────────────────────────────
     gesamt = sum(rohscores.values())
     n = len(rohscores)
 
@@ -119,7 +139,7 @@ def berechne_team_scores(
             price_factor=ent.verkaufspreis,
             rohscore=round(rohscores[tid], 6),
             marktanteil=round(anteil, 6),
-            zuteilbare_lose=0,  # wird von demand.verteile_nachfrage gesetzt
+            zuteilbare_lose=0,
         )
 
     return result

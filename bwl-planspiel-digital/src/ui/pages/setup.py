@@ -32,12 +32,22 @@ def render() -> None:
 def _render_neues_spiel() -> None:
     st.subheader("Neues Spiel erstellen")
 
+    # Slider AUSSERHALB des Formulars → reagiert sofort auf Änderungen
+    if "setup_anzahl_teams" not in st.session_state:
+        st.session_state["setup_anzahl_teams"] = 4
+
+    anzahl_teams: int = st.slider(
+        "Anzahl Teams",
+        MIN_TEAMS,
+        MAX_TEAMS,
+        key="setup_anzahl_teams",
+    )
+
     with st.form("neues_spiel_form"):
         spielname = st.text_input("Spielname", value="BWL Planspiel 2026")
         max_jahre = st.slider("Spiellänge (Jahre)", MIN_JAHRE, MAX_JAHRE, DEFAULT_JAHRE)
-        anzahl_teams = st.slider("Anzahl Teams", MIN_TEAMS, MAX_TEAMS, 4)
 
-        st.markdown("**Teamnamen:**")
+        st.markdown(f"**Teamnamen** ({anzahl_teams} Teams):")
         team_namen: list[str] = []
         cols = st.columns(2)
         for i in range(anzahl_teams):

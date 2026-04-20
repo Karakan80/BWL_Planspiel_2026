@@ -103,16 +103,18 @@ def verarbeite_quartal(
     # Lieferbar = min(Markt-Nachfrage, Fertigwaren-Lagerbestand in Losen)
     lieferbare_lose: int = _berechne_lieferbare_lose(team, verkaufte_lose, hk_eff)
     erloes: float = lieferbare_lose * entscheidung.verkaufspreis
-    hk_verkauft: float = lieferbare_lose * hk_eff
+    # GuV: Herstellungskosten = PRODUZIERTE Lose × HK (Gesamtkostenverfahren)
+    hk_produziert: float = produzierte_lose * hk_eff
+    hk_geliefert: float = lieferbare_lose * hk_eff   # für Fertigwarenbewegung
     guv.umsatz = erloes
-    guv.herstellungskosten = hk_verkauft
-    guv.rohertrag = erloes - hk_verkauft
+    guv.herstellungskosten = hk_produziert
+    guv.rohertrag = erloes - hk_produziert
     guv.gemeinkosten = team.gemeinkosten_pro_quartal
     # Erlös → Forderungen (cash erst nächstes Quartal, Schritt 9)
     team.aktiva.forderungen = erloes
 
     # ── Schritt 8: Produkte liefern ────────────────────────────────────────────
-    team.aktiva.fertigwaren = max(0.0, team.aktiva.fertigwaren - hk_verkauft)
+    team.aktiva.fertigwaren = max(0.0, team.aktiva.fertigwaren - hk_geliefert)
 
     # ── Schritt 9: Forderungen vom Vorquartal einziehen → Kasse ───────────────
     team.aktiva.kasse += forderungen_vorquartal
