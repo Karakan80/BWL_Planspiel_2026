@@ -5,14 +5,16 @@ Scoring-Formel (nachvollziehbar, nach Konzept):
 
     marketing_term  = (1 + marketingbudget / MARKETING_NORMALISIERUNG) ^ 0.4
     quality_factor  = 1 + qualitaetsinvestition_gesamt / QUALITAET_SKALIERUNG
+    gk_term         = 1 + gemeinkosten_delta × Gemeinkosten-Wirkung
     preis_ratio     = verkaufspreis / BASIS_PREIS
 
-    score(team)     = marketing_term × quality_factor / preis_ratio
+    score(team)     = marketing_term × quality_factor × gk_term / preis_ratio
     marktanteil     = score(team) / sum(all_scores)
     lose(team)      = aktuelles_marktvolumen × marktanteil  (Largest-Remainder-Rundung)
 
 Eigenschaften:
   - marketing = 0 → marketing_term = 1 (kein Ausschluss vom Markt)
+  - Gemeinkosten sparen senkt den Score; Zusatzbudget für Service/F&E/Vertrieb erhöht ihn
   - Preis unter BASIS_PREIS → preis_ratio < 1 → höherer Score (günstigerer Preis attraktiver)
   - Qualitätsskandal: Non-Investoren erhalten score_faktor 0.8 (−20 %)
 """
@@ -41,6 +43,13 @@ QUALITAET_SKALIERUNG: float = 10.0
 #: Mindestinvestition für Skandal-Schutz (Mio. €)
 QUALITAET_INVESTOR_SCHWELLE: float = 5.0
 
+#: Zusatzbudget hilft moderat; Sparprogramme schaden stärker, weil Service/F&E/Vertrieb leiden.
+#: Bei UI-Grenzen −3/+5 ergibt das 0,85–1,15.
+GEMEINKOSTEN_ZUSATZ_SCORE_PRO_MIO: float = 0.03
+GEMEINKOSTEN_SPAR_SCORE_PRO_MIO: float = 0.05
+GEMEINKOSTEN_SCORE_MIN: float = 0.70
+GEMEINKOSTEN_SCORE_MAX: float = 1.30
+
 
 # ─── Öffentliche Hilfsfunktionen ─────────────────────────────────────────────
 
@@ -65,6 +74,15 @@ def berechne_preis_ratio(verkaufspreis: float) -> float:
     return verkaufspreis / BASIS_PREIS
 
 
+def berechne_gemeinkosten_term(gemeinkosten_delta: float) -> float:
+    """Score-Faktor aus Gemeinkosten-Anpassung: +1 Mio. → +3 %, −1 Mio. → −5 %."""
+    if gemeinkosten_delta >= 0:
+        term = 1.0 + gemeinkosten_delta * GEMEINKOSTEN_ZUSATZ_SCORE_PRO_MIO
+    else:
+        term = 1.0 + gemeinkosten_delta * GEMEINKOSTEN_SPAR_SCORE_PRO_MIO
+    return max(GEMEINKOSTEN_SCORE_MIN, min(GEMEINKOSTEN_SCORE_MAX, term))
+
+
 def berechne_rohscore(
     entscheidung: TeamEntscheidung,
     team: Team,
@@ -73,15 +91,17 @@ def berechne_rohscore(
     """
     Berechnet den Rohscore eines Teams.
 
-    score = (1 + marketing / 10)^0.4 × quality_factor / (preis / 10) × score_faktor
+    score = (1 + marketing / 10)^0.4 × quality_factor
+            × gemeinkosten_term / (preis / 10) × score_faktor
 
     Args:
         score_faktor: Externer Multiplikator (z.B. 0.8 bei Qualitätsskandal).
     """
     m_term = berechne_marketing_term(entscheidung.marketingbudget)
     quality = berechne_quality_factor(team)
+    gk_term = berechne_gemeinkosten_term(entscheidung.gemeinkosten_delta)
     preis_r = berechne_preis_ratio(entscheidung.verkaufspreis)
-    return m_term * quality / preis_r * score_faktor
+    return m_term * quality * gk_term / preis_r * score_faktor
 
 
 def berechne_team_scores(
@@ -105,6 +125,7 @@ def berechne_team_scores(
 
     # ── Rohscores ────────────────────────────────────────────────────────────
     rohscores: dict[str, float] = {}
+    score_faktoren: dict[str, tuple[float, float, float, float, float]] = {}
     for ent in entscheidungen:
         team = teams_by_id.get(ent.team_id)
         if team is None or team.ist_insolvent:
@@ -118,7 +139,25 @@ def berechne_team_scores(
                 else ereignis.score_faktor_allgemein
             )
 
-        rohscores[ent.team_id] = berechne_rohscore(ent, team, faktor)
+        marketing_term = berechne_marketing_term(ent.marketingbudget)
+        quality_factor = berechne_quality_factor(team)
+        gemeinkosten_factor = berechne_gemeinkosten_term(ent.gemeinkosten_delta)
+        price_factor = berechne_preis_ratio(ent.verkaufspreis)
+
+        rohscores[ent.team_id] = (
+            marketing_term
+            * quality_factor
+            * gemeinkosten_factor
+            / price_factor
+            * faktor
+        )
+        score_faktoren[ent.team_id] = (
+            marketing_term,
+            quality_factor,
+            gemeinkosten_factor,
+            price_factor,
+            faktor,
+        )
 
     # ── Normierung → Marktanteile ─────────────────────────────────────────────
     gesamt = sum(rohscores.values())
@@ -131,12 +170,16 @@ def berechne_team_scores(
             continue
 
         anteil = rohscores[tid] / gesamt if gesamt > 0 else (1.0 / n if n > 0 else 0.0)
+        marketing_term, quality_factor, gemeinkosten_factor, price_factor, faktor = score_faktoren[tid]
 
         result[tid] = TeamScore(
             team_id=tid,
             marketing=ent.marketingbudget,
-            quality_factor=berechne_quality_factor(teams_by_id[tid]),
-            price_factor=ent.verkaufspreis,
+            marketing_term=marketing_term,
+            quality_factor=quality_factor,
+            gemeinkosten_factor=gemeinkosten_factor,
+            price_factor=price_factor,
+            ereignis_factor=faktor,
             rohscore=round(rohscores[tid], 6),
             marktanteil=round(anteil, 6),
             zuteilbare_lose=0,

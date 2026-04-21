@@ -11,6 +11,7 @@ Standard-Pfade (relativ zu bwl-planspiel-digital/):
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -43,7 +44,9 @@ def lade(pfad: Optional[Path] = None) -> SpielZustand:
     quelle = pfad or SPIELSTAND_PFAD
     if not quelle.exists():
         raise FileNotFoundError(f"Kein Spielstand gefunden: {quelle}")
-    return SpielZustand.model_validate_json(quelle.read_text(encoding="utf-8"))
+    rohdaten = json.loads(quelle.read_text(encoding="utf-8"))
+    _migriere_spielstand_rohdaten(rohdaten)
+    return SpielZustand.model_validate(rohdaten)
 
 
 def existiert(pfad: Optional[Path] = None) -> bool:
@@ -98,3 +101,11 @@ def liste_backups(verzeichnis: Optional[Path] = None) -> list[Path]:
         reverse=True,
     )
     return dateien
+
+
+def _migriere_spielstand_rohdaten(rohdaten: dict) -> None:
+    """Ergänzt neue Felder in älteren JSON-Spielständen."""
+    for team in rohdaten.get("teams", {}).values():
+        if "fertigwaren_lose" not in team:
+            fertigwaren_wert = team.get("aktiva", {}).get("fertigwaren", 0.0)
+            team["fertigwaren_lose"] = max(0, int(round(fertigwaren_wert / 7.0)))

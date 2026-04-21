@@ -10,6 +10,7 @@ from src.models.round import (
     GuV,
     InvestitionsTyp,
     Kennzahlen,
+    MaschinenVariante,
     MaterialEinkaufsTyp,
     QuartalErgebnis,
     TeamEntscheidung,
@@ -25,6 +26,7 @@ __all__ = [
     # round
     "MaterialEinkaufsTyp",
     "InvestitionsTyp",
+    "MaschinenVariante",
     "TeamEntscheidung",
     "GuV",
     "Cashflow",

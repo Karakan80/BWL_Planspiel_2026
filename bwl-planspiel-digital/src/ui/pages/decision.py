@@ -13,7 +13,13 @@ from typing import Optional
 
 import streamlit as st
 
-from src.models.round import InvestitionsTyp, MaterialEinkaufsTyp, TeamEntscheidung
+from src.models.round import (
+    InvestitionsTyp,
+    MASCHINEN_PREISE,
+    MaschinenVariante,
+    MaterialEinkaufsTyp,
+    TeamEntscheidung,
+)
 from src.models.team import Team
 from src.services import state_service
 from src.services.game_service import GameService, SpielPhase
@@ -32,14 +38,13 @@ def render(game: GameService) -> None:
     st.title(f"📝 Entscheidung – Jahr {z.aktuelles_jahr} / Q{z.aktuelles_quartal}")
 
     # ── Schritt 1: Quartal starten ─────────────────────────────────────────
-    if not st.session_state.get("quartal_gestartet", False):
+    if not z.quartal_gestartet:
         st.info(
             "Klicke auf **Quartal starten**, um die Ereigniskarte zu ziehen "
             "und die Entscheidungsphase zu öffnen."
         )
         if st.button("🎲 Quartal starten", type="primary", use_container_width=True):
             game.starte_quartal()
-            st.session_state.quartal_gestartet = True
             state_service.auto_save(z)
             st.rerun()
         return
@@ -81,7 +86,6 @@ def render(game: GameService) -> None:
             try:
                 ergebnisse = game.verarbeite_quartal()
                 st.session_state.letztes_ergebnisse = ergebnisse
-                st.session_state.quartal_gestartet = False
                 state_service.auto_save(game.zustand)
                 st.session_state.seite = "ergebnisse"
                 st.rerun()
@@ -124,12 +128,19 @@ def _render_zusammenfassung(ent: TeamEntscheidung) -> None:
     col3.metric("Marketing", f"{ent.marketingbudget:.1f} Mio. €")
 
     details: list[str] = [f"Einkauf: {ent.material_einkauf.value}"]
+    if ent.gemeinkosten_delta != 0:
+        details.append(f"GK-Anpassung: {ent.gemeinkosten_delta:+.1f}")
     if ent.kredit_aufnahme > 0:
         details.append(f"Kredit: +{ent.kredit_aufnahme:.1f}")
     if ent.tilgung > 0:
         details.append(f"Tilgung: −{ent.tilgung:.1f}")
     if ent.investition_typ:
-        details.append(f"Invest.: {ent.investition_typ.value} ({ent.investition_betrag:.1f} Mio.€)")
+        if ent.investition_typ == InvestitionsTyp.MASCHINE:
+            details.append(
+                f"Invest.: {ent.maschinen_beschreibung} ({ent.investition_betrag:.1f} Mio.€)"
+            )
+        else:
+            details.append(f"Invest.: {ent.investition_typ.value} ({ent.investition_betrag:.1f} Mio.€)")
     st.caption(" | ".join(details))
 
 
@@ -139,8 +150,10 @@ def _render_zusammenfassung(ent: TeamEntscheidung) -> None:
 def _render_team_form(game: GameService, team: Team) -> None:
     z = game.zustand
     tid = team.id
+    zins_pro_10_mio = 10.0 * z.basis_zinssatz
+    zinssatz_pct = z.basis_zinssatz * 100
 
-    with st.form(key=f"form_{tid}_{z.aktuelles_jahr}_{z.aktuelles_quartal}"):
+    with st.container():
         col_prod, col_fin = st.columns(2)
 
         # ── Produktion & Markt ─────────────────────────────────────────────
@@ -153,6 +166,10 @@ def _render_team_form(game: GameService, team: Team) -> None:
                 max_value=30.0,
                 value=10.0,
                 step=0.5,
+                help=(
+                    "Umsatz = Preis x verkaufte Lose. Beispiel: 10 Mio. x 2 Lose = "
+                    "20 Mio. Umsatz; Kasse kommt 1 Quartal später."
+                ),
                 key=f"preis_{tid}",
             )
             prod_menge = st.number_input(
@@ -161,6 +178,10 @@ def _render_team_form(game: GameService, team: Team) -> None:
                 max_value=team.kapazitaet_lose_pro_quartal,
                 value=min(2, team.kapazitaet_lose_pro_quartal),
                 step=1,
+                help=(
+                    "1 Los kostet ca. 7 Mio. Herstellung: 3 Material + 3 Fertigung "
+                    "+ 1 Montage. Verkauf bringt erst Geld, wenn Nachfrage da ist."
+                ),
                 key=f"prod_{tid}",
             )
             marketing = st.number_input(
@@ -169,11 +190,18 @@ def _render_team_form(game: GameService, team: Team) -> None:
                 max_value=20.0,
                 value=1.0,
                 step=0.5,
+                help=(
+                    "Kostet sofort. 1 Mio. bringt ca. +4 % Score, 5 Mio. ca. +18 % Score."
+                ),
                 key=f"mkt_{tid}",
             )
             einkauf_label = st.selectbox(
                 "Materialeinkauf",
-                options=["Spot (Marktpreis)", "Jahresvertrag (−10 % stabil)"],
+                options=["Spot (Marktpreis)", "Jahresvertrag (fix −10 %)"],
+                help=(
+                    "Spot = Marktpreis, Basis 3,0 Mio./Los. Jahresvertrag = fix "
+                    "2,7 Mio./Los."
+                ),
                 key=f"einkauf_{tid}",
             )
             einkauf = (
@@ -186,12 +214,31 @@ def _render_team_form(game: GameService, team: Team) -> None:
         with col_fin:
             st.markdown("**Finanzierung & Investition**")
 
+            gemeinkosten_delta = st.number_input(
+                "Gemeinkosten-Anpassung (Mio. €)",
+                min_value=-3.0,
+                max_value=5.0,
+                value=0.0,
+                step=0.5,
+                help=(
+                    f"Basis aktuell {team.gemeinkosten_pro_quartal:.1f} Mio./Q. "
+                    "-1 spart 1 Mio. und gibt -5 % Score; +1 kostet 1 Mio. "
+                    "und gibt +3 % Score."
+                ),
+                key=f"gkdelta_{tid}",
+            )
+
             kredit = st.number_input(
                 "Kredit aufnehmen (Mio. €)",
                 min_value=0.0,
                 max_value=200.0,
                 value=0.0,
                 step=1.0,
+                help=(
+                    f"+10 Mio. Kredit = +10 Mio. Kasse und +10 Mio. FK. "
+                    f"Bei {zinssatz_pct:.0f} % Zins kostet das ab nächstem Jahr "
+                    f"ca. {zins_pro_10_mio:.1f} Mio./Jahr."
+                ),
                 key=f"kredit_{tid}",
             )
             max_tilgung = max(0.0, float(team.passiva.langfristiges_fk))
@@ -201,6 +248,11 @@ def _render_team_form(game: GameService, team: Team) -> None:
                 max_value=max_tilgung,
                 value=0.0,
                 step=1.0,
+                help=(
+                    f"10 Mio. Tilgung = -10 Mio. Kasse und -10 Mio. FK. "
+                    f"Spart ab nächstem Jahr bei {zinssatz_pct:.0f} % ca. "
+                    f"{zins_pro_10_mio:.1f} Mio. Zins/Jahr."
+                ),
                 key=f"tilgung_{tid}",
             )
 
@@ -209,30 +261,63 @@ def _render_team_form(game: GameService, team: Team) -> None:
                 "Investitionstyp",
                 options=[
                     "Keine",
-                    "Maschine (+1 Kapazität)",
+                    "Maschine auswählen",
                     "Automatisierung",
                     "Qualitätsinvestition",
                 ],
+                help=(
+                    "Wirkung ab Folgequartal. Maschine: 20/30/40 Mio. Auto: 1 Mio. "
+                    "= -2 % Fertigung/Montage. Qualität: 5 Mio. = Faktor 1,5."
+                ),
                 key=f"invtyp_{tid}",
             )
 
             inv_typ: Optional[InvestitionsTyp] = None
             inv_betrag = 0.0
+            maschinen_variante = MaschinenVariante.STANDARD
 
-            if inv_opt != "Keine":
+            maschinen_optionen = {
+                "Standardmaschine - 20 Mio. € - +1 Kapazität": MaschinenVariante.STANDARD,
+                "Effizienzmaschine - 30 Mio. € - +1 Kapazität, -10 % Fertigung/Montage":
+                    MaschinenVariante.EFFIZIENZ,
+                "Hochleistungsanlage - 40 Mio. € - +2 Kapazität": MaschinenVariante.HOCHLEISTUNG,
+            }
+
+            if inv_opt == "Maschine auswählen":
+                inv_typ = InvestitionsTyp.MASCHINE
+                maschine_label = st.selectbox(
+                    "Maschinenmodell",
+                    options=list(maschinen_optionen.keys()),
+                    help=(
+                        "20 Mio. = +1 Los/Q. 30 Mio. = +1 Los/Q und spart ca. "
+                        "0,4 Mio./Los. 40 Mio. = +2 Lose/Q. Wirkung ab Folgequartal."
+                    ),
+                    key=f"maschine_{tid}",
+                )
+                maschinen_variante = maschinen_optionen[maschine_label]
+                inv_betrag = MASCHINEN_PREISE[maschinen_variante]
+                st.caption(f"Preis: {inv_betrag:.1f} Mio. €")
+            elif inv_opt in ("Automatisierung", "Qualitätsinvestition"):
+                inv_typ = {
+                    "Automatisierung": InvestitionsTyp.AUTOMATISIERUNG,
+                    "Qualitätsinvestition": InvestitionsTyp.QUALITAET,
+                }[inv_opt]
+                investition_help = (
+                    "1 Mio. = -2 % auf Fertigung/Montage; max. -30 %. "
+                    "5 Mio. spart ab Folgequartal ca. 0,4 Mio./Los."
+                    if inv_opt == "Automatisierung"
+                    else "5 Mio. = Faktor 1,5; 10 Mio. = Faktor 2,0 im Score. "
+                    "Ab Folgequartal, ab 5 Mio. Schutz beim Qualitätsskandal."
+                )
                 inv_betrag = st.number_input(
                     "Investitionsbetrag (Mio. €)",
                     min_value=0.1,
                     max_value=100.0,
                     value=5.0,
                     step=0.5,
+                    help=investition_help,
                     key=f"invbet_{tid}",
                 )
-                inv_typ = {
-                    "Maschine (+1 Kapazität)": InvestitionsTyp.MASCHINE,
-                    "Automatisierung": InvestitionsTyp.AUTOMATISIERUNG,
-                    "Qualitätsinvestition": InvestitionsTyp.QUALITAET,
-                }[inv_opt]
 
         # ── Team-Info-Zeile ────────────────────────────────────────────────
         st.caption(
@@ -241,15 +326,18 @@ def _render_team_form(game: GameService, team: Team) -> None:
             f"Kapazität: {team.kapazitaet_lose_pro_quartal} Lose/Q"
         )
 
-        submitted = st.form_submit_button(
+        submitted = st.button(
             "✅ Entscheidung einreichen",
             type="primary",
             use_container_width=True,
+            help="Speichert die Entscheidung dieses Teams für das aktuelle Quartal.",
+            key=f"submit_{tid}_{z.aktuelles_jahr}_{z.aktuelles_quartal}",
         )
 
     if submitted:
         _reiche_ein(game, tid, z, verkaufspreis, int(prod_menge),
-                    marketing, einkauf, kredit, tilgung, inv_typ, inv_betrag)
+                    marketing, gemeinkosten_delta, einkauf, kredit, tilgung,
+                    inv_typ, inv_betrag, maschinen_variante)
 
 
 def _reiche_ein(
@@ -259,11 +347,13 @@ def _reiche_ein(
     verkaufspreis: float,
     prod_menge: int,
     marketing: float,
+    gemeinkosten_delta: float,
     einkauf: MaterialEinkaufsTyp,
     kredit: float,
     tilgung: float,
     inv_typ: Optional[InvestitionsTyp],
     inv_betrag: float,
+    maschinen_variante: MaschinenVariante,
 ) -> None:
     try:
         entscheidung = TeamEntscheidung(
@@ -273,9 +363,11 @@ def _reiche_ein(
             verkaufspreis=verkaufspreis,
             produktionsmenge_lose=prod_menge,
             marketingbudget=marketing,
+            gemeinkosten_delta=gemeinkosten_delta,
             material_einkauf=einkauf,
             investition_typ=inv_typ,
             investition_betrag=inv_betrag,
+            maschinen_variante=maschinen_variante,
             kredit_aufnahme=kredit,
             tilgung=tilgung,
         )

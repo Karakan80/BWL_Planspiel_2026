@@ -18,9 +18,6 @@ from src.config import TEAM_FARBEN
 from src.engine.market_share import (
     BASIS_PREIS,
     MARKETING_NORMALISIERUNG,
-    berechne_marketing_term,
-    berechne_preis_ratio,
-    berechne_quality_factor,
 )
 from src.models.round import QuartalErgebnis
 from src.services import scoring_service
@@ -137,7 +134,8 @@ def _render_marktanteile_pie(
     with st.expander("🔍 Score-Berechnung (Formel-Erklärung)", expanded=False):
         st.markdown(
             "**Formel:** `score = (1 + Marketing / "
-            f"{MARKETING_NORMALISIERUNG:.0f})^0.4 × Qualitätsfaktor / (Preis / {BASIS_PREIS:.0f})`"
+            f"{MARKETING_NORMALISIERUNG:.0f})^0.4 × Qualitätsfaktor × Gemeinkosten-Faktor "
+            f"× Ereignis-Faktor / (Preis / {BASIS_PREIS:.0f})`"
         )
         _render_score_breakdown(ergebnisse, z)
 
@@ -169,23 +167,21 @@ def _render_quartalsergebnisse(
 
 
 def _render_score_breakdown(ergebnisse: dict[str, QuartalErgebnis], z) -> None:
-    """Zeigt für jedes Team wie sich der Score aus den drei Faktoren zusammensetzt."""
+    """Zeigt für jedes Team die Faktoren, die wirklich zur Nachfrageberechnung genutzt wurden."""
     import pandas as pd
 
     zeilen = []
     for tid, qe in ergebnisse.items():
         team = z.teams[tid]
-        ent = qe.entscheidung
-        m_term = berechne_marketing_term(ent.marketingbudget)
-        qf = berechne_quality_factor(team)
-        pr = berechne_preis_ratio(ent.verkaufspreis)
-        score_recomputed = m_term * qf / pr
         zeilen.append({
             "Team": team.name,
-            f"Mkt-Term (1+M/{MARKETING_NORMALISIERUNG:.0f})^0.4": round(m_term, 4),
-            "Qualitäts-Faktor": round(qf, 4),
-            f"Preis-Ratio (P/{BASIS_PREIS:.0f})": round(pr, 4),
-            "Score": round(score_recomputed, 4),
+            f"Mkt-Term (1+M/{MARKETING_NORMALISIERUNG:.0f})^0.4":
+                round(qe.score_marketing_term, 4),
+            "Qualitäts-Faktor": round(qe.score_qualitaets_faktor, 4),
+            "GK-Faktor": round(qe.score_gemeinkosten_faktor, 4),
+            "Ereignis-Faktor": round(qe.score_ereignis_faktor, 4),
+            f"Preis-Ratio (P/{BASIS_PREIS:.0f})": round(qe.score_preis_faktor, 4),
+            "Score": round(qe.score, 4),
             "Marktanteil": f"{qe.marktanteil * 100:.1f} %",
             "Lose zugeteilt": qe.verkaufte_lose,
         })
@@ -196,7 +192,9 @@ def _render_score_breakdown(ergebnisse: dict[str, QuartalErgebnis], z) -> None:
     st.caption(
         "Marketing-Term: höheres Budget → größerer Wert. "
         "Preis-Ratio: niedrigerer Preis → kleinerer Nenner → höherer Score. "
-        "Qualitäts-Faktor: steigt mit kumulierten Qualitätsinvestitionen."
+        "Qualitäts-Faktor: steigt mit kumulierten Qualitätsinvestitionen. "
+        "GK-Faktor: +1 Mio. Gemeinkosten = +3 % Score, −1 Mio. = −5 % Score. "
+        "Ereignis-Faktor zeigt z.B. den Qualitätsskandal."
     )
 
 

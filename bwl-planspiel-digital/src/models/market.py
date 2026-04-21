@@ -114,16 +114,20 @@ EREIGNISKARTEN: list[Ereignis] = [
 class TeamScore(BaseModel):
     """Scoring-Ergebnis für ein Team in einem Quartal.
 
-    Formel aus Konzept:
-        score = marketing^0.4 * quality_factor / price_factor
+    Formel:
+        score = marketing_term * quality_factor * gemeinkosten_factor
+                * ereignis_factor / price_factor
         market_share = score / sum(all_scores)
         sales = total_market_demand * market_share
     """
 
     team_id: str
     marketing: float = Field(ge=0.0)
+    marketing_term: float = Field(default=1.0, ge=0.0)
     quality_factor: float = Field(default=1.0, ge=0.0)   # Basiert auf Qualitätsinvestitionen
-    price_factor: float = Field(gt=0.0)                   # = Verkaufspreis (normiert)
+    gemeinkosten_factor: float = Field(default=1.0, ge=0.0)
+    price_factor: float = Field(gt=0.0)                   # = Verkaufspreis / Basispreis
+    ereignis_factor: float = Field(default=1.0, ge=0.0)
     rohscore: float = 0.0      # Berechneter Rohscore vor Normierung
     marktanteil: float = 0.0   # 0.0–1.0 nach Normierung
     zuteilbare_lose: int = 0   # Nachfrage in Losen (gerundet)
@@ -146,7 +150,7 @@ class MarktZustand(BaseModel):
     # Materialpreise (Mio. EUR pro Los)
     basis_materialpreis: float = 3.0
     aktueller_materialpreis: float = 3.0
-    materialpreis_langfrist_aufschlag: float = 0.10  # +10% für Langfristvertrag
+    materialpreis_langfrist_rabatt: float = 0.10  # -10% und Schutz vor Spotpreis-Schocks
 
     # Kapitalkosten
     basis_zinssatz: float = 0.10   # 10% p.a.
@@ -167,7 +171,7 @@ class MarktZustand(BaseModel):
         from src.models.round import MaterialEinkaufsTyp  # lokaler Import vermeidet Zirkelbezug
 
         if einkaufstyp == MaterialEinkaufsTyp.LANGFRIST:
-            return self.aktueller_materialpreis * (1 + self.materialpreis_langfrist_aufschlag)
+            return self.basis_materialpreis * (1 - self.materialpreis_langfrist_rabatt)
         return self.aktueller_materialpreis
 
     def anwende_ereignis(self, ereignis: Ereignis) -> None:

@@ -10,13 +10,38 @@ class MaterialEinkaufsTyp(str, Enum):
     """Einkaufsstrategie für Rohmaterial."""
 
     SPOT = "spot"           # Preis = aktueller Marktpreis (günstig, aber volatil)
-    LANGFRIST = "langfrist" # Preis = Marktpreis × 1.1 (stabil, aber teurer)
+    LANGFRIST = "langfrist" # Preis = Basispreis × 0.9 (stabiler Jahresvertrag)
 
 
 class InvestitionsTyp(str, Enum):
     MASCHINE = "maschine"             # Erhöht Kapazität (+1 Los/Q)
     AUTOMATISIERUNG = "automatisierung"  # Senkt variable Stückkosten
     QUALITAET = "qualitaet"           # Erhöht quality_factor im Scoring
+
+
+class MaschinenVariante(str, Enum):
+    STANDARD = "standard"
+    EFFIZIENZ = "effizienz"
+    HOCHLEISTUNG = "hochleistung"
+
+
+MASCHINEN_PREISE: dict[MaschinenVariante, float] = {
+    MaschinenVariante.STANDARD: 20.0,
+    MaschinenVariante.EFFIZIENZ: 30.0,
+    MaschinenVariante.HOCHLEISTUNG: 40.0,
+}
+
+MASCHINEN_KAPAZITAET: dict[MaschinenVariante, int] = {
+    MaschinenVariante.STANDARD: 1,
+    MaschinenVariante.EFFIZIENZ: 1,
+    MaschinenVariante.HOCHLEISTUNG: 2,
+}
+
+MASCHINEN_AUTOMATISIERUNG_BONUS: dict[MaschinenVariante, float] = {
+    MaschinenVariante.STANDARD: 0.0,
+    MaschinenVariante.EFFIZIENZ: 5.0,
+    MaschinenVariante.HOCHLEISTUNG: 0.0,
+}
 
 
 class TeamEntscheidung(BaseModel):
@@ -30,11 +55,16 @@ class TeamEntscheidung(BaseModel):
     verkaufspreis: float = Field(gt=0, description="Verkaufspreis pro Los (Mio. EUR)")
     produktionsmenge_lose: int = Field(ge=0, description="Bestellte Produktionslose")
     marketingbudget: float = Field(ge=0.0, description="Marketingausgaben (Mio. EUR)")
+    gemeinkosten_delta: float = Field(
+        default=0.0,
+        description="Abweichung von regulären Gemeinkosten; wirkt auf Kosten und Markt-Score",
+    )
 
     # Optionale Felder
     material_einkauf: MaterialEinkaufsTyp = MaterialEinkaufsTyp.SPOT
     investition_typ: Optional[InvestitionsTyp] = None
     investition_betrag: float = Field(default=0.0, ge=0.0)
+    maschinen_variante: MaschinenVariante = MaschinenVariante.STANDARD
     kredit_aufnahme: float = Field(default=0.0, ge=0.0, description="Neuer Kredit (Mio. EUR)")
     tilgung: float = Field(default=0.0, ge=0.0, description="Freiwillige Tilgung (Mio. EUR)")
 
@@ -44,7 +74,35 @@ class TeamEntscheidung(BaseModel):
             raise ValueError("investition_betrag muss > 0 sein wenn investition_typ gesetzt ist.")
         if self.investition_typ is None and self.investition_betrag > 0:
             raise ValueError("investition_typ muss gesetzt sein wenn investition_betrag > 0.")
+        if self.investition_typ == InvestitionsTyp.MASCHINE:
+            mindestpreis = MASCHINEN_PREISE[self.maschinen_variante]
+            if self.investition_betrag < mindestpreis:
+                variante = self.maschinen_variante.value
+                raise ValueError(
+                    f"Maschinenvariante {variante!r} kostet mindestens "
+                    f"{mindestpreis:.0f} Mio. EUR."
+                )
         return self
+
+    @property
+    def maschinen_kapazitaets_zuwachs(self) -> int:
+        if self.investition_typ != InvestitionsTyp.MASCHINE:
+            return 0
+        return MASCHINEN_KAPAZITAET[self.maschinen_variante]
+
+    @property
+    def maschinen_automatisierung_bonus(self) -> float:
+        if self.investition_typ != InvestitionsTyp.MASCHINE:
+            return 0.0
+        return MASCHINEN_AUTOMATISIERUNG_BONUS[self.maschinen_variante]
+
+    @property
+    def maschinen_beschreibung(self) -> str:
+        if self.maschinen_variante == MaschinenVariante.STANDARD:
+            return "Standardmaschine (+1 Kapazität)"
+        if self.maschinen_variante == MaschinenVariante.EFFIZIENZ:
+            return "Effizienzmaschine (+1 Kapazität, −10 % Fertigung/Montage)"
+        return "Hochleistungsanlage (+2 Kapazität)"
 
 
 class GuV(BaseModel):
@@ -129,6 +187,11 @@ class QuartalErgebnis(BaseModel):
     marktanteil: float = 0.0          # 0.0–1.0
     verkaufte_lose: int = 0
     score: float = 0.0                # Rohscore vor Normierung
+    score_marketing_term: float = 1.0
+    score_qualitaets_faktor: float = 1.0
+    score_gemeinkosten_faktor: float = 1.0
+    score_preis_faktor: float = 1.0
+    score_ereignis_faktor: float = 1.0
 
     # Jahresabschluss-Kennzahlen (nur Q4 befüllt)
     kennzahlen: Optional[Kennzahlen] = None

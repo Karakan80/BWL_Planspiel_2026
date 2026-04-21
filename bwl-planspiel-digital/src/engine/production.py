@@ -33,6 +33,8 @@ MATERIAL_PRO_LOS: float = 3.0    # Schritt 1: Rohmaterialkosten
 FERTIGUNG_PRO_LOS: float = 3.0   # Schritt 3: Fertigungskosten Stufe 1
 MONTAGE_PRO_LOS: float = 1.0     # Schritt 4: Endmontagekosten Stufe 2
 HK_PRO_LOS: float = 7.0          # Herstellungskosten gesamt (= Summe der drei oben)
+AUTOMATISIERUNG_ERSPARNIS_PRO_MIO: float = 0.02
+AUTOMATISIERUNG_MAX_ERSPARNIS: float = 0.30
 
 
 def verarbeite_quartal(
@@ -71,8 +73,9 @@ def verarbeite_quartal(
 
     # Effektive Stückkosten inkl. Ereignis-Multiplikatoren (z.B. Streik +15%)
     mat_preis: float = markt.materialpreis_fuer(entscheidung.material_einkauf)
-    fert_eff: float = FERTIGUNG_PRO_LOS * markt.fertigungskosten_faktor
-    mont_eff: float = MONTAGE_PRO_LOS * markt.fertigungskosten_faktor
+    automatisierungsfaktor = _automatisierungs_kostenfaktor(team)
+    fert_eff: float = FERTIGUNG_PRO_LOS * markt.fertigungskosten_faktor * automatisierungsfaktor
+    mont_eff: float = MONTAGE_PRO_LOS * markt.fertigungskosten_faktor * automatisierungsfaktor
     hk_eff: float = mat_preis + fert_eff + mont_eff
 
     # ── Schritte 1 + 2: Material bestellen & bezahlen │ Rohmaterial ins Lager ─
@@ -100,31 +103,31 @@ def verarbeite_quartal(
         team.aktiva.unfertige_erzeugnisse - produzierte_lose * (mat_preis + fert_eff),
     )
     team.aktiva.fertigwaren += produzierte_lose * hk_eff
+    team.fertigwaren_lose += produzierte_lose
 
     # ── Schritte 6 + 7: Rechnung stellen │ Herstellungskosten notieren ────────
     # Lieferbar = min(Markt-Nachfrage, Fertigwaren-Lagerbestand in Losen)
-    lieferbare_lose: int = _berechne_lieferbare_lose(team, verkaufte_lose, hk_eff)
+    lieferbare_lose: int = _berechne_lieferbare_lose(team, verkaufte_lose)
     erloes: float = lieferbare_lose * entscheidung.verkaufspreis
-    # GuV: Herstellungskosten = PRODUZIERTE Lose × HK (Gesamtkostenverfahren)
-    hk_produziert: float = produzierte_lose * hk_eff
-    hk_geliefert: float = lieferbare_lose * hk_eff   # für Fertigwarenbewegung
+    hk_geliefert: float = _bewerte_und_entnehme_fertigwaren(team, lieferbare_lose)
     guv.umsatz = erloes
-    guv.herstellungskosten = hk_produziert
-    guv.rohertrag = erloes - hk_produziert
-    guv.gemeinkosten = team.gemeinkosten_pro_quartal + entscheidung.marketingbudget
+    guv.herstellungskosten = hk_geliefert
+    guv.rohertrag = erloes - hk_geliefert
+    gemeinkosten_effektiv = max(0.0, team.gemeinkosten_pro_quartal + entscheidung.gemeinkosten_delta)
+    guv.gemeinkosten = gemeinkosten_effektiv + entscheidung.marketingbudget
     # Erlös → Forderungen (cash erst nächstes Quartal, Schritt 9)
     team.aktiva.forderungen = erloes
 
     # ── Schritt 8: Produkte liefern ────────────────────────────────────────────
-    team.aktiva.fertigwaren = max(0.0, team.aktiva.fertigwaren - hk_geliefert)
+    # Der Lagerabgang wurde bereits mit Durchschnittskosten bewertet und gebucht.
 
     # ── Schritt 9: Forderungen vom Vorquartal einziehen → Kasse ───────────────
     team.aktiva.kasse += forderungen_vorquartal
     cf.einzahlungen_forderungen = forderungen_vorquartal
 
     # ── Schritt 10: Gemeinkosten zahlen ───────────────────────────────────────
-    team.aktiva.kasse -= team.gemeinkosten_pro_quartal
-    cf.auszahlungen_gemeinkosten = team.gemeinkosten_pro_quartal
+    team.aktiva.kasse -= gemeinkosten_effektiv
+    cf.auszahlungen_gemeinkosten = gemeinkosten_effektiv
 
     # ── Erweiterungen (außerhalb der 10 Original-Schritte) ────────────────────
     # Marketing: cashwirksamer operativer Aufwand
@@ -160,6 +163,11 @@ def verarbeite_quartal(
         marktanteil=score_obj.marktanteil if score_obj else 0.0,
         verkaufte_lose=lieferbare_lose,
         score=score_obj.rohscore if score_obj else 0.0,
+        score_marketing_term=score_obj.marketing_term if score_obj else 1.0,
+        score_qualitaets_faktor=score_obj.quality_factor if score_obj else 1.0,
+        score_gemeinkosten_faktor=score_obj.gemeinkosten_factor if score_obj else 1.0,
+        score_preis_faktor=score_obj.price_factor if score_obj else 1.0,
+        score_ereignis_faktor=score_obj.ereignis_factor if score_obj else 1.0,
         kasse_nach_quartal=team.aktiva.kasse,
         forderungen_nach_quartal=team.aktiva.forderungen,
         eigenkapital_nach_quartal=team.passiva.eigenkapital,
@@ -190,15 +198,43 @@ def _zahle_material(team: Team, betrag: float, cf: Cashflow) -> None:
         team.material_schulden_vorquartal = 0.0
 
 
-def _berechne_lieferbare_lose(team: Team, nachfrage: int, hk_pro_los: float) -> int:
+def _automatisierungs_kostenfaktor(team: Team) -> float:
     """
-    Lieferbare Lose = min(Markt-Nachfrage, Fertigwaren-Lagerbestand in Losen).
-    Der Lagerbestand wird durch ganzzahlige Division in Lose umgerechnet.
+    Automatisierungsinvestitionen senken Fertigungs- und Montagekosten.
+
+    Pro investierter Mio. EUR sinken die direkten Fertigungskosten um 2 Prozentpunkte,
+    maximal um 30 %. Die Wirkung startet ab dem Folgequartal, weil Investitionen erst
+    nach der laufenden Produktion gebucht werden.
     """
-    if hk_pro_los <= 0:
-        return 0
-    lager_in_losen = int(team.aktiva.fertigwaren / hk_pro_los)
-    return min(nachfrage, lager_in_losen)
+    ersparnis = min(
+        AUTOMATISIERUNG_MAX_ERSPARNIS,
+        team.automatisierungsinvestition_gesamt * AUTOMATISIERUNG_ERSPARNIS_PRO_MIO,
+    )
+    return 1.0 - ersparnis
+
+
+def _berechne_lieferbare_lose(team: Team, nachfrage: int) -> int:
+    """
+    Lieferbare Lose = min(Markt-Nachfrage, physischer Fertigwarenbestand).
+    """
+    return min(nachfrage, max(0, team.fertigwaren_lose))
+
+
+def _bewerte_und_entnehme_fertigwaren(team: Team, lose: int) -> float:
+    """
+    Bucht den Lagerabgang der gelieferten Lose mit Durchschnittskosten.
+
+    Damit werden auch alte Lagerbestände korrekt als Herstellungskosten erfasst,
+    statt nur die im aktuellen Quartal produzierten Lose in die GuV zu nehmen.
+    """
+    if lose <= 0 or team.fertigwaren_lose <= 0:
+        return 0.0
+
+    avg_cost = team.aktiva.fertigwaren / team.fertigwaren_lose
+    hk_geliefert = min(team.aktiva.fertigwaren, lose * avg_cost)
+    team.aktiva.fertigwaren = max(0.0, round(team.aktiva.fertigwaren - hk_geliefert, 4))
+    team.fertigwaren_lose = max(0, team.fertigwaren_lose - lose)
+    return round(hk_geliefert, 4)
 
 
 def _verarbeite_investition(
@@ -224,9 +260,11 @@ def _verarbeite_investition(
     afa_delta: float = round(betrag / 10.0, 4)  # Abschreibung p.a.
 
     if entscheidung.investition_typ == InvestitionsTyp.MASCHINE:
-        # Neue Maschine: Kapazität steigt um 1 Los/Q; Maschinenwert + AfA erhöhen
         team.aktiva.maschinen += betrag
-        team.kapazitaet_lose_pro_quartal += 1
+        team.kapazitaet_lose_pro_quartal += entscheidung.maschinen_kapazitaets_zuwachs
+        team.automatisierungsinvestition_gesamt += (
+            entscheidung.maschinen_automatisierung_bonus
+        )
         team.abschreibungen.maschinen += afa_delta
 
     elif entscheidung.investition_typ == InvestitionsTyp.AUTOMATISIERUNG:
