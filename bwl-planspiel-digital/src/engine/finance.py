@@ -92,7 +92,7 @@ def _summiere_operative_guv(quartal_ergebnisse: list[QuartalErgebnis]) -> GuV:
     for qe in quartal_ergebnisse:
         guv.umsatz += qe.guv.umsatz
         guv.herstellungskosten += qe.guv.herstellungskosten  # = produzierte Lose × HK
-        guv.gemeinkosten += qe.guv.gemeinkosten + qe.entscheidung.marketingbudget
+        guv.gemeinkosten += qe.guv.gemeinkosten  # already includes marketing budget
 
     guv.rohertrag = round(guv.umsatz - guv.herstellungskosten, 4)
     return guv

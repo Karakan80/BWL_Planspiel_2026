@@ -266,6 +266,8 @@ class GameService:
                 markt=markt,
                 verkaufte_lose=nachfrage.get(tid, 0),
                 forderungen_vorquartal=z.forderungen_vorquartal.get(tid, 0.0),
+                fk_jahresbeginn=z.fk_jahresbeginn.get(tid, 0.0),
+                zinssatz=z.basis_zinssatz,
             )
             ergebnisse[tid] = qe
             z.quartal_ergebnisse.append(qe)
