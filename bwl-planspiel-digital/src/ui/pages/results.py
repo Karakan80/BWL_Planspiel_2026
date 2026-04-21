@@ -153,13 +153,15 @@ def _render_quartalsergebnisse(
     for col, (tid, qe) in zip(cols, ergebnisse.items()):
         with col:
             st.markdown(f"**{z.teams[tid].name}**")
-            guv_table.render_guv(qe.guv, zeige_abschreibungen=False)
+            guv_table.render_guv(qe.guv)
+            st.divider()
             kasse = qe.kasse_nach_quartal
             farbe = "red" if kasse < 0 else "green"
-            st.markdown(f"Kasse: :{farbe}[**{kasse:.2f} Mio. €**]")
+            st.markdown(f"Kasse: :{farbe}[**{kasse:.2f} M€**]")
             st.caption(
-                f"FK: {qe.fremdkapital_nach_quartal:.2f}  |  "
-                f"EK: {qe.eigenkapital_nach_quartal:.2f}"
+                f"Forderungen: {qe.forderungen_nach_quartal:.2f}  |  "
+                f"EK: {qe.eigenkapital_nach_quartal:.2f}  |  "
+                f"FK: {qe.fremdkapital_nach_quartal:.2f}"
             )
 
 
@@ -215,11 +217,7 @@ def _render_jahresabschluss(game: GameService, jahr: int) -> None:
             col_guv, col_kpis = st.columns(2)
 
             with col_guv:
-                guv_table.render_guv(
-                    guv_j,
-                    zeige_abschreibungen=True,
-                    titel="Jahres-GuV (Mio. €)",
-                )
+                guv_table.render_guv(guv_j, titel="Jahres-GuV (Mio. €)")
 
             with col_kpis:
                 if kpis:

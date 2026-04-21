@@ -41,6 +41,8 @@ def verarbeite_quartal(
     markt: MarktZustand,
     verkaufte_lose: int,
     forderungen_vorquartal: float,
+    fk_jahresbeginn: float = 0.0,
+    zinssatz: float = 0.10,
 ) -> QuartalErgebnis:
     """
     Führt alle 10 Quartalschritte in Original-Reihenfolge aus.
@@ -109,7 +111,7 @@ def verarbeite_quartal(
     guv.umsatz = erloes
     guv.herstellungskosten = hk_produziert
     guv.rohertrag = erloes - hk_produziert
-    guv.gemeinkosten = team.gemeinkosten_pro_quartal
+    guv.gemeinkosten = team.gemeinkosten_pro_quartal + entscheidung.marketingbudget
     # Erlös → Forderungen (cash erst nächstes Quartal, Schritt 9)
     team.aktiva.forderungen = erloes
 
@@ -131,6 +133,16 @@ def verarbeite_quartal(
 
     _verarbeite_investition(team, entscheidung, markt, cf)
     _verarbeite_kredit(team, entscheidung, cf)
+
+    # ── Quartal-GuV vervollständigen (AfA + Zinsen → EBIT/EBT/Steuern) ────────
+    afa_quartal: float = round(team.abschreibungen.gesamt / 4, 4)
+    zinsen_quartal: float = round(fk_jahresbeginn * zinssatz / 4, 4)
+    guv.abschreibungen = afa_quartal
+    guv.ebit = round(guv.rohertrag - guv.gemeinkosten - afa_quartal, 4)
+    guv.zinsen = zinsen_quartal
+    guv.ebt = round(guv.ebit - zinsen_quartal, 4)
+    guv.steuern = round(max(0.0, guv.ebt) * (1 / 3), 4)
+    guv.nettogewinn = round(guv.ebt - guv.steuern, 4)
 
     # ── Insolvenz-Check ────────────────────────────────────────────────────────
     _pruefe_insolvenz(team)
