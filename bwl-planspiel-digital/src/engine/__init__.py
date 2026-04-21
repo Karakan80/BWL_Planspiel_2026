@@ -4,6 +4,7 @@ from src.engine.finance import buche_jahresabschluss
 from src.engine.market_share import (
     BASIS_PREIS,
     MARKETING_NORMALISIERUNG,
+    PREIS_SCORE_EXPONENT,
     berechne_gemeinkosten_term,
     berechne_marketing_term,
     berechne_preis_ratio,
@@ -27,6 +28,7 @@ __all__ = [
     # market_share
     "BASIS_PREIS",
     "MARKETING_NORMALISIERUNG",
+    "PREIS_SCORE_EXPONENT",
     "berechne_gemeinkosten_term",
     "berechne_marketing_term",
     "berechne_preis_ratio",

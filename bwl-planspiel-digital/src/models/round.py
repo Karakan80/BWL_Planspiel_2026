@@ -186,6 +186,12 @@ class QuartalErgebnis(BaseModel):
     # Marktdaten dieses Quartals
     marktanteil: float = 0.0          # 0.0–1.0
     verkaufte_lose: int = 0
+    marktvolumen_lose: float = 0.0
+    marktvolumen_vor_preis_lose: float = 0.0
+    aktive_teamanzahl: int = 4
+    teamanzahl_faktor: float = 1.0
+    durchschnittspreis_markt: float = 10.0
+    preis_elastizitaets_faktor: float = 1.0
     score: float = 0.0                # Rohscore vor Normierung
     score_marketing_term: float = 1.0
     score_qualitaets_faktor: float = 1.0

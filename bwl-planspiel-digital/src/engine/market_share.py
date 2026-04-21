@@ -8,7 +8,7 @@ Scoring-Formel (nachvollziehbar, nach Konzept):
     gk_term         = 1 + gemeinkosten_delta × Gemeinkosten-Wirkung
     preis_ratio     = verkaufspreis / BASIS_PREIS
 
-    score(team)     = marketing_term × quality_factor × gk_term / preis_ratio
+    score(team)     = marketing_term × quality_factor × gk_term / preis_ratio^2.6
     marktanteil     = score(team) / sum(all_scores)
     lose(team)      = aktuelles_marktvolumen × marktanteil  (Largest-Remainder-Rundung)
 
@@ -36,6 +36,9 @@ MARKETING_NORMALISIERUNG: float = 10.0
 
 #: Referenzpreis (Mio. €).  preis_ratio = 1 → score neutral bezüglich Preis.
 BASIS_PREIS: float = 10.0
+
+#: Preis wirkt überproportional auf die Attraktivität, damit Extrempreise nicht dominant sind.
+PREIS_SCORE_EXPONENT: float = 2.6
 
 #: 10 M€ kumulierte Qualitätsinvestition → quality_factor = 2.0
 QUALITAET_SKALIERUNG: float = 10.0
@@ -92,7 +95,7 @@ def berechne_rohscore(
     Berechnet den Rohscore eines Teams.
 
     score = (1 + marketing / 10)^0.4 × quality_factor
-            × gemeinkosten_term / (preis / 10) × score_faktor
+            × gemeinkosten_term / (preis / 10)^2.6 × score_faktor
 
     Args:
         score_faktor: Externer Multiplikator (z.B. 0.8 bei Qualitätsskandal).
@@ -101,7 +104,7 @@ def berechne_rohscore(
     quality = berechne_quality_factor(team)
     gk_term = berechne_gemeinkosten_term(entscheidung.gemeinkosten_delta)
     preis_r = berechne_preis_ratio(entscheidung.verkaufspreis)
-    return m_term * quality * gk_term / preis_r * score_faktor
+    return m_term * quality * gk_term / (preis_r ** PREIS_SCORE_EXPONENT) * score_faktor
 
 
 def berechne_team_scores(
@@ -148,7 +151,7 @@ def berechne_team_scores(
             marketing_term
             * quality_factor
             * gemeinkosten_factor
-            / price_factor
+            / (price_factor ** PREIS_SCORE_EXPONENT)
             * faktor
         )
         score_faktoren[ent.team_id] = (

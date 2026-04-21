@@ -63,8 +63,9 @@ EREIGNISKARTEN: list[Ereignis] = [
     Ereignis(
         typ=EreignisTyp.WIRTSCHAFTSKRISE,
         titel="Wirtschaftskrise",
-        beschreibung="Rezession dämpft die Nachfrage erheblich.",
+        beschreibung="Rezession dämpft die Nachfrage; Rohstoffe werden am Spotmarkt günstiger.",
         marktvolumen_faktor=0.75,
+        materialpreis_faktor=0.85,
     ),
     Ereignis(
         typ=EreignisTyp.TECHNOLOGIESPRUNG,
@@ -146,6 +147,11 @@ class MarktZustand(BaseModel):
     # Marktvolumen
     basis_marktvolumen_lose: float = 40.0      # Gesamtnachfrage in Losen (Basiswert)
     aktuelles_marktvolumen_lose: float = 40.0  # Nach Ereignisanpassung
+    marktvolumen_vor_preis_lose: float = 40.0  # Nach Ereignis/Teamfaktor, vor Preiselastizität
+    aktive_teamanzahl: int = 4
+    teamanzahl_faktor: float = 1.0
+    durchschnittspreis_markt: float = 10.0
+    preis_elastizitaets_faktor: float = 1.0
 
     # Materialpreise (Mio. EUR pro Los)
     basis_materialpreis: float = 3.0
@@ -180,6 +186,7 @@ class MarktZustand(BaseModel):
         self.aktuelles_marktvolumen_lose = (
             self.basis_marktvolumen_lose * ereignis.marktvolumen_faktor
         )
+        self.marktvolumen_vor_preis_lose = self.aktuelles_marktvolumen_lose
         self.aktueller_materialpreis = (
             self.basis_materialpreis * ereignis.materialpreis_faktor
         )

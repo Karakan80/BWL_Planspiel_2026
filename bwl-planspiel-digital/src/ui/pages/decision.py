@@ -167,8 +167,8 @@ def _render_team_form(game: GameService, team: Team) -> None:
                 value=10.0,
                 step=0.5,
                 help=(
-                    "Umsatz = Preis x verkaufte Lose. Beispiel: 10 Mio. x 2 Lose = "
-                    "20 Mio. Umsatz; Kasse kommt 1 Quartal später."
+                    "Umsatz = Preis x verkaufte Lose. Über 10 Mio. sinkt die Gesamtnachfrage stark; "
+                    "30 Mio. funktioniert nur bei sehr wenig Konkurrenz/Nachfrage."
                 ),
                 key=f"preis_{tid}",
             )
@@ -199,8 +199,8 @@ def _render_team_form(game: GameService, team: Team) -> None:
                 "Materialeinkauf",
                 options=["Spot (Marktpreis)", "Jahresvertrag (fix −10 %)"],
                 help=(
-                    "Spot = Marktpreis, Basis 3,0 Mio./Los. Jahresvertrag = fix "
-                    "2,7 Mio./Los."
+                    "Spot = aktueller Marktpreis, Basis 3,0 Mio./Los. Jahresvertrag = fix "
+                    "2,7 Mio./Los. Bei Wirtschaftskrise ist Spot z.B. 2,55."
                 ),
                 key=f"einkauf_{tid}",
             )
@@ -215,15 +215,14 @@ def _render_team_form(game: GameService, team: Team) -> None:
             st.markdown("**Finanzierung & Investition**")
 
             gemeinkosten_delta = st.number_input(
-                "Gemeinkosten-Anpassung (Mio. €)",
-                min_value=-3.0,
+                "Service-/F&E-Zusatzbudget (Mio. €)",
+                min_value=0.0,
                 max_value=5.0,
                 value=0.0,
                 step=0.5,
                 help=(
                     f"Basis aktuell {team.gemeinkosten_pro_quartal:.1f} Mio./Q. "
-                    "-1 spart 1 Mio. und gibt -5 % Score; +1 kostet 1 Mio. "
-                    "und gibt +3 % Score."
+                    "+1 kostet 1 Mio. und gibt +3 % Score."
                 ),
                 key=f"gkdelta_{tid}",
             )

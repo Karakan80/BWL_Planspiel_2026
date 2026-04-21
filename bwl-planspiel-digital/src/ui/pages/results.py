@@ -18,6 +18,7 @@ from src.config import TEAM_FARBEN
 from src.engine.market_share import (
     BASIS_PREIS,
     MARKETING_NORMALISIERUNG,
+    PREIS_SCORE_EXPONENT,
 )
 from src.models.round import QuartalErgebnis
 from src.services import scoring_service
@@ -101,6 +102,7 @@ def _render_marktanteile_pie(
     namen = [z.teams[tid].name for tid in ergebnisse]
     anteile = [qe.marktanteil for qe in ergebnisse.values()]
     verkauft = [qe.verkaufte_lose for qe in ergebnisse.values()]
+    erstes_ergebnis = next(iter(ergebnisse.values()), None)
 
     col_pie, col_tabelle = st.columns([2, 3])
 
@@ -123,6 +125,15 @@ def _render_marktanteile_pie(
 
     with col_tabelle:
         st.markdown("**Marktdetails**")
+        if erstes_ergebnis is not None:
+            st.caption(
+                f"Gesamtnachfrage: {erstes_ergebnis.marktvolumen_lose:.1f} Lose "
+                f"(vor Preiseffekt {erstes_ergebnis.marktvolumen_vor_preis_lose:.1f}; "
+                f"{erstes_ergebnis.aktive_teamanzahl} aktive Teams; "
+                f"Teamfaktor {erstes_ergebnis.teamanzahl_faktor:.2f}; "
+                f"Ø Preis {erstes_ergebnis.durchschnittspreis_markt:.1f}; "
+                f"Preisfaktor {erstes_ergebnis.preis_elastizitaets_faktor:.2f})"
+            )
         for tid, qe in ergebnisse.items():
             name = z.teams[tid].name
             st.markdown(
@@ -135,7 +146,7 @@ def _render_marktanteile_pie(
         st.markdown(
             "**Formel:** `score = (1 + Marketing / "
             f"{MARKETING_NORMALISIERUNG:.0f})^0.4 × Qualitätsfaktor × Gemeinkosten-Faktor "
-            f"× Ereignis-Faktor / (Preis / {BASIS_PREIS:.0f})`"
+            f"× Ereignis-Faktor / (Preis / {BASIS_PREIS:.0f})^{PREIS_SCORE_EXPONENT:.1f}`"
         )
         _render_score_breakdown(ergebnisse, z)
 
@@ -193,8 +204,9 @@ def _render_score_breakdown(ergebnisse: dict[str, QuartalErgebnis], z) -> None:
         "Marketing-Term: höheres Budget → größerer Wert. "
         "Preis-Ratio: niedrigerer Preis → kleinerer Nenner → höherer Score. "
         "Qualitäts-Faktor: steigt mit kumulierten Qualitätsinvestitionen. "
-        "GK-Faktor: +1 Mio. Gemeinkosten = +3 % Score, −1 Mio. = −5 % Score. "
-        "Ereignis-Faktor zeigt z.B. den Qualitätsskandal."
+        "GK-Faktor: +1 Mio. Service/F&E = +3 % Score. "
+        "Ereignis-Faktor zeigt z.B. den Qualitätsskandal. "
+        "Zusätzlich schrumpft die Gesamtnachfrage, wenn der Marktpreis deutlich über 10 Mio. liegt."
     )
 
 
