@@ -16,9 +16,9 @@ from __future__ import annotations
 import streamlit as st
 
 from config import APP_NAME, APP_VERSION
-from services import state_service
-from services.game_service import GameService, SpielPhase
-from ui.pages import dashboard, decision, results, setup
+from src.services import state_service
+from src.services.game_service import GameService, SpielPhase
+from src.ui.pages import dashboard, decision, results, setup
 
 
 # ── Session-State initialisieren ──────────────────────────────────────────────
