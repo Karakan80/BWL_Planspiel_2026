@@ -47,6 +47,7 @@ class SpielZustand(BaseModel):
     aktuelles_quartal: int = 1
     max_jahre: int = 3
     phase: SpielPhase = SpielPhase.EINRICHTUNG
+    quartal_gestartet: bool = False
 
     # Zinssatz: startet bei 10 %, wird durch ZINSERHOEHUNG-Ereignis dauerhaft erhöht
     basis_zinssatz: float = 0.10
@@ -160,6 +161,10 @@ class GameService:
         z = self._z
         if z.phase == SpielPhase.ABGESCHLOSSEN:
             raise RuntimeError("Das Spiel ist bereits abgeschlossen.")
+        if z.quartal_gestartet and z.letztes_ereignis is not None:
+            return z.letztes_ereignis
+
+        self._aktualisiere_basis_gemeinkosten()
 
         # Jahresbeginn: FK-Stand für Zinsberechnung einfrieren
         if z.aktuelles_quartal == 1:
@@ -179,6 +184,7 @@ class GameService:
         z.ereignis_historie.append(ereignis)
         z.aktuelle_entscheidungen = {}
         z.phase = SpielPhase.ENTSCHEIDUNG
+        z.quartal_gestartet = True
         return ereignis
 
     def reiche_entscheidung_ein(self, entscheidung: TeamEntscheidung) -> None:
@@ -266,6 +272,8 @@ class GameService:
                 markt=markt,
                 verkaufte_lose=nachfrage.get(tid, 0),
                 forderungen_vorquartal=z.forderungen_vorquartal.get(tid, 0.0),
+                fk_jahresbeginn=z.fk_jahresbeginn.get(tid, 0.0),
+                zinssatz=z.basis_zinssatz,
             )
             ergebnisse[tid] = qe
             z.quartal_ergebnisse.append(qe)
@@ -279,8 +287,12 @@ class GameService:
         if z.aktuelles_quartal == 4:
             self._buche_jahresabschluss_alle()
 
+        # Entscheidungen gehören nur zum gerade ausgewerteten Quartal.
+        z.aktuelle_entscheidungen = {}
+
         # 6. Spielzähler vorrücken
         self._vorruecken()
+        z.quartal_gestartet = False
         return ergebnisse
 
     # ── Abfrage-Methoden ────────────────────────────────────────────────────
@@ -346,6 +358,10 @@ class GameService:
                 q4.kennzahlen = kpis
                 q4.cashflow.auszahlungen_zinsen = jahres_guv_obj.zinsen
                 q4.cashflow.auszahlungen_steuern = jahres_guv_obj.steuern
+                q4.kasse_nach_quartal = team.aktiva.kasse
+                q4.forderungen_nach_quartal = team.aktiva.forderungen
+                q4.eigenkapital_nach_quartal = team.passiva.eigenkapital
+                q4.fremdkapital_nach_quartal = team.passiva.langfristiges_fk
 
     def _vorruecken(self) -> None:
         """Rückt Jahres-/Quartalszähler vor und setzt die neue Phase."""
@@ -359,3 +375,10 @@ class GameService:
             z.phase = SpielPhase.ENTSCHEIDUNG
         else:
             z.phase = SpielPhase.ABGESCHLOSSEN
+        self._aktualisiere_basis_gemeinkosten()
+
+    def _aktualisiere_basis_gemeinkosten(self) -> None:
+        """Setzt die regulären Gemeinkosten nach Jahr: J1 = 6 Mio./Q, ab J2 = 5 Mio./Q."""
+        basis = 6.0 if self._z.aktuelles_jahr == 1 else 5.0
+        for team in self._z.teams.values():
+            team.gemeinkosten_pro_quartal = basis

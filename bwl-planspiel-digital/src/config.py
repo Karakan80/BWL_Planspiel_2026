@@ -25,7 +25,7 @@ TEAM_FARBEN = [
 # Investitionsoptionen (Anzeigetext → InvestitionsTyp-Wert)
 INVESTITIONS_OPTIONEN = {
     "Keine": None,
-    "Maschine (+1 Kapazität)": "maschine",
+    "Maschine auswählen": "maschine",
     "Automatisierung": "automatisierung",
     "Qualitätsinvestition": "qualitaet",
 }
@@ -33,5 +33,5 @@ INVESTITIONS_OPTIONEN = {
 # Einkaufstypen (Anzeigetext → MaterialEinkaufsTyp-Wert)
 EINKAUFSTYP_OPTIONEN = {
     "Spot (Marktpreis)": "spot",
-    "Jahresvertrag (−10 % stabil)": "langfrist",
+    "Jahresvertrag (fix −10 %)": "langfrist",
 }

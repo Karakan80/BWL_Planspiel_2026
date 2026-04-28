@@ -82,6 +82,7 @@ class Team(BaseModel):
     kapazitaet_lose_pro_quartal: int = 2   # Produktionskapazität in Losen
     gemeinkosten_pro_quartal: float = 6.0  # 6M Jahr 1, 5M ab Jahr 2
     abschreibungen: Abschreibungen = Field(default_factory=Abschreibungen)
+    fertigwaren_lose: int = 3              # Physische Lose im Fertigwarenlager
 
     # Investitionsstand (für Scoring relevant)
     qualitaetsinvestition_gesamt: float = 0.0   # Kumulierter Betrag → quality_factor

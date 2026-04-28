@@ -4,7 +4,7 @@ ui/components/guv_table.py – GuV-Tabelle (Quartal oder Jahr)
 Verwendung:
     from src.ui.components.guv_table import render_guv
     render_guv(qe.guv)
-    render_guv(jahres_guv, zeige_abschreibungen=True, titel="Jahres-GuV")
+    render_guv(jahres_guv, titel="Jahres-GuV")
 """
 from __future__ import annotations
 
@@ -15,40 +15,31 @@ import streamlit as st
 from src.models.round import GuV
 
 
-def render_guv(
-    guv: GuV,
-    zeige_abschreibungen: bool = False,
-    titel: Optional[str] = None,
-) -> None:
+def render_guv(guv: GuV, titel: Optional[str] = None) -> None:
     """
     Rendert eine GuV als kompakte zweispaltige Tabelle (Label | Wert).
 
+    Zeigt immer die vollständige GuV inkl. Abschreibungen, Zinsen und Steuern.
+
     Args:
-        guv:                  GuV-Objekt (Quartal oder Jahresabschluss).
-        zeige_abschreibungen: Bei True wird die AfA-Zeile zwischen Gemeinkosten
-                              und EBIT eingefügt (relevant für Jahres-GuV).
-        titel:                Optionaler Überschrift-Text (als ``st.caption``).
+        guv:   GuV-Objekt (Quartal oder Jahresabschluss).
+        titel: Optionaler Überschrift-Text (als ``st.caption``).
     """
     if titel:
         st.caption(titel)
 
     positionen: list[tuple[str, float, bool]] = [
         # (Bezeichnung, Wert, ist_summenzeile)
-        ("Umsatz",              guv.umsatz,              False),
-        ("− Herstellungskosten", guv.herstellungskosten,  False),
-        ("= Rohertrag",          guv.rohertrag,           True),
-        ("− Gemeinkosten",       guv.gemeinkosten,        False),
-    ]
-
-    if zeige_abschreibungen:
-        positionen.append(("− Abschreibungen", guv.abschreibungen, False))
-
-    positionen += [
-        ("= EBIT",       guv.ebit,       True),
-        ("− Zinsen",     guv.zinsen,     False),
-        ("= EBT",        guv.ebt,        True),
-        ("− Steuern",    guv.steuern,    False),
-        ("= Nettogewinn", guv.nettogewinn, True),
+        ("Umsatzerlöse",           guv.umsatz,              False),
+        ("− Herstellungskosten",   guv.herstellungskosten,  False),
+        ("= Bruttoergebnis",       guv.rohertrag,           True),
+        ("− Gemeinkosten",         guv.gemeinkosten,        False),
+        ("− Abschreibungen",       guv.abschreibungen,      False),
+        ("= EBIT",                 guv.ebit,                True),
+        ("− Zinsen",               guv.zinsen,              False),
+        ("= EBT",                  guv.ebt,                 True),
+        ("− Steuern (33,3 %)",     guv.steuern,             False),
+        ("= Nettogewinn",          guv.nettogewinn,         True),
     ]
 
     for label, wert, ist_summe in positionen:

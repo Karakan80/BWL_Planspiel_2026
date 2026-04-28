@@ -92,7 +92,7 @@ def _summiere_operative_guv(quartal_ergebnisse: list[QuartalErgebnis]) -> GuV:
     for qe in quartal_ergebnisse:
         guv.umsatz += qe.guv.umsatz
         guv.herstellungskosten += qe.guv.herstellungskosten  # = produzierte Lose × HK
-        guv.gemeinkosten += qe.guv.gemeinkosten + qe.entscheidung.marketingbudget
+        guv.gemeinkosten += qe.guv.gemeinkosten  # already includes marketing budget
 
     guv.rohertrag = round(guv.umsatz - guv.herstellungskosten, 4)
     return guv
@@ -141,7 +141,7 @@ def _berechne_kennzahlen(
         ROE  = Nettogewinn / Eigenkapital × 100
         ROI  = EBIT / Gesamtkapital × 100
         KU   = Umsatz / Gesamtkapital
-        BEP  = Fixkosten / (Ø-Preis_pro_Los − HK_PRO_LOS)  [Einheit: Lose]
+        BEP  = Fixkosten / (Ø-Preis_pro_Los − variable Stückkosten)  [Einheit: Lose]
         Liq1 = Kasse / kurzfrist. Verbindlichkeiten
         Liq2 = (Kasse + Forderungen) / kurzfrist. Verbindlichkeiten
 
@@ -164,10 +164,11 @@ def _berechne_kennzahlen(
 
     if total_lose_verkauft > 0 and guv.umsatz > 0:
         avg_preis_pro_los = guv.umsatz / total_lose_verkauft
-        db_pro_los = avg_preis_pro_los - HK_PRO_LOS
+        variable_stueckkosten = guv.herstellungskosten / total_lose_verkauft
+        db_pro_los = avg_preis_pro_los - variable_stueckkosten
         fixkosten = guv.gemeinkosten + guv.abschreibungen
         kpis.fixkosten = round(fixkosten, 4)
-        kpis.variable_stueckkosten = HK_PRO_LOS
+        kpis.variable_stueckkosten = round(variable_stueckkosten, 4)
         if db_pro_los > 0:
             kpis.bep = round(fixkosten / db_pro_los, 2)
 
